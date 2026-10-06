@@ -1,0 +1,128 @@
+# ESP32 IR bridge for a Mitsubishi Heavy Industries SRK71ZK-S (remote RKW502A200).
+#
+# Protocol confirmed on hardware: 88-bit MHI "ZJS" (kMitsubishiHeavyZjsSig).
+# Byte layout verified against captures from this remote, the RKW012A401B user
+# manual, and the remote's own LCD labels for every airflow position.
+
+esphome:
+  name: mhi-srk71zk-s
+  friendly_name: Mitsubishi Heavy SRK71ZK-S
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+    advanced:
+      minimum_chip_revision: "3.1"
+
+logger:
+  level: DEBUG
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  # The current AP requires legacy WPA. Prefer WPA2/WPA3 where possible.
+  min_auth_mode: WPA
+
+external_components:
+  - source:
+      type: local
+      path: components
+    components: [ mhi_zjs ]
+
+remote_transmitter:
+  id: ir_tx
+  pin: GPIO4
+  carrier_duty_percent: 50%
+
+remote_receiver:
+  id: ir_rx
+  pin:
+    number: GPIO14
+    inverted: true
+    mode:
+      input: true
+      pullup: true
+  dump: raw
+  tolerance: 55%
+  buffer_size: 10kb
+
+i2c:
+  sda: GPIO21
+  scl: GPIO22
+  scan: true
+
+sensor:
+  - platform: shtcx
+    temperature:
+      name: "Room Temperature"
+      id: room_temperature
+    humidity:
+      name: "Room Humidity"
+    update_interval: 60s
+
+climate:
+  - platform: mhi_zjs
+    id: aircon
+    name: "Air Conditioner"
+    sensor: room_temperature
+    transmitter_id: ir_tx
+    receiver_id: ir_rx
+    vertical_position_select: vane_updown
+    horizontal_position_select: vane_leftright
+
+# Airflow positions. Options are in the cycle order the remote presents, matched
+# to the LCD label it shows for each press. "Auto" is the state the remote shows
+# with no position indicator (ECHONET Lite calls the equivalent "auto").
+select:
+  - platform: template
+    id: vane_updown
+    name: "Airflow Up-Down"
+    optimistic: false
+    options:
+      - "Up"
+      - "Up Centre"
+      - "Centre"
+      - "Down Centre"
+      - "Down"
+      - "Swing"
+      - "Auto"
+    set_action:
+      - lambda: |-
+          static const char *const opts[7] = {"Up", "Up Centre", "Centre",
+                                              "Down Centre", "Down", "Swing", "Auto"};
+          uint8_t idx = 0;
+          for (uint8_t i = 0; i < 7; i++)
+            if (x == opts[i]) idx = i;
+          id(aircon)->set_vertical_by_index(idx);
+
+  - platform: template
+    id: vane_leftright
+    name: "Airflow Left-Right"
+    optimistic: false
+    options:
+      - "Left Left"
+      - "Left Centre"
+      - "Centre Centre"
+      - "Centre Right"
+      - "Right Right"
+      - "Left Right"
+      - "Right Left"
+      - "Swing"
+      - "Auto"
+    set_action:
+      - lambda: |-
+          static const char *const opts[9] = {"Left Left", "Left Centre", "Centre Centre",
+                                              "Centre Right", "Right Right", "Left Right",
+                                              "Right Left", "Swing", "Auto"};
+          uint8_t idx = 0;
+          for (uint8_t i = 0; i < 9; i++)
+            if (x == opts[i]) idx = i;
+          id(aircon)->set_horizontal_by_index(idx);

@@ -11,3 +11,6 @@ secrets.yaml
 *.log
 __pycache__/
 *.py[cod]
+# Unrelated local Device Builder starter and capture helper.
+/esphome-starter.yaml
+/capture_rx.py
